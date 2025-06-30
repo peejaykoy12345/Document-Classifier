@@ -1,0 +1,145 @@
+import os
+import pickle
+import pytesseract
+import torch
+import torch.nn as nn
+import json
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.model_selection import train_test_split
+from PIL import Image
+
+image_paths = []
+labels = []
+folder_labels = {
+    "ID": 0,
+    "Medical Form": 1,
+    "Receipts": 2
+}
+
+print("Setting up Tesseract OCR...")
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff')
+
+print("Loading images and labels...")
+
+for folder_name in os.listdir("DataSet"):
+    folder_path = os.path.join("DataSet", folder_name)
+
+    if not os.path.isdir(folder_path) or folder_name not in folder_labels:
+        continue
+
+    label = folder_labels[folder_name]
+
+    for file_name in os.listdir(folder_path):
+        if file_name.lower().endswith(valid_extensions):
+            image_path = os.path.join(folder_path, file_name)
+            image_paths.append(image_path)
+            labels.append(label)
+
+with open("labels.json", "w") as f:
+    json.dump(labels, f, indent=4)
+
+stop_words = [
+    "the", "and", "is", "in", "of", "to", "a", "with", "for", "on",
+    "at", "by", "this", "that", "an", "are", "was", "as", "from", "be"
+]
+
+
+vectorizer = TfidfVectorizer(
+    max_features=1000,
+    ngram_range=(1, 2),
+    stop_words=stop_words
+    )
+
+print("Extracting text from images...")
+texts = []
+
+with open("texts.json", "r") as f:
+    texts = json.load(f)
+
+'''texts_appended = 0
+image_count = len(image_paths)
+for image_path in image_paths:
+    text = pytesseract.image_to_string(Image.open(image_path)) 
+    texts.append(text)
+    texts_appended += 1
+    if texts_appended % 10 == 0:
+        print(f"Appended {text} {round(texts_appended / image_count * 100, 1)}% so far")'''
+
+'''with open("texts.json", "w") as f:
+    json.dump(texts, f, indent=4)'''
+
+x = vectorizer.fit_transform(texts).toarray()
+
+x = torch.tensor(x, dtype=torch.float32)
+y = torch.tensor(labels, dtype=torch.float32).view(-1, 1)
+
+dataset = TensorDataset(x, y)
+train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+class TextClassifier(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(TextClassifier, self).__init__()
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, output_dim)
+        )
+
+    def forward(self, x):
+        return self.model(x)
+    
+    def fit(self, train_loader, epochs):
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        criterion = nn.CrossEntropyLoss()
+
+        for epoch in range(epochs):
+            for batch_x, batch_y in train_loader:
+                optimizer.zero_grad()
+                outputs = self(batch_x)
+                loss = criterion(outputs, batch_y.squeeze().long())
+                loss.backward()
+                optimizer.step()
+                torch.save(model.state_dict(), "text_classifier_model.pth")
+
+            if (epoch + 1) % 10 == 0:
+                print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.4f}')
+
+model = TextClassifier(input_dim=x.shape[1], output_dim=len(folder_labels))
+#model.load_state_dict(torch.load("text_classifier_model.pth"))
+#model.eval()
+print("Training the model...")
+model.fit(train_loader, epochs=30)
+
+ID_TEST_image_path = "TestSet/ID_TESTING_1.png"
+RECEIPT_TEST_image_path = "TestSet/RECEIPT_TESTING_1.png"
+MEDICAL_FORM_TEST_image_path = "TestSet/MEDICAL_FORM_TEST_1.png"
+
+print("Extracting text from test images...")
+
+id_text = pytesseract.image_to_string(Image.open(ID_TEST_image_path))
+receipt_text = pytesseract.image_to_string(Image.open(RECEIPT_TEST_image_path))
+medical_form_text = pytesseract.image_to_string(Image.open(MEDICAL_FORM_TEST_image_path))
+
+id_text_vector = torch.tensor(vectorizer.transform([id_text]).toarray(), dtype=torch.float32)
+receipt_text_vector = torch.tensor(vectorizer.transform([receipt_text]).toarray(), dtype=torch.float32)
+medical_form_text_vector = torch.tensor(vectorizer.transform([medical_form_text]).toarray(), dtype=torch.float32)
+
+classes = {v: k for k, v in folder_labels.items()}
+
+with torch.no_grad():
+    ID_TEST_PREDICTION = model(id_text_vector)
+    RECEIPT_TEST_PREDICTION = model(receipt_text_vector)
+    MEDICAL_FORM_PREDICTION = model(medical_form_text_vector)
+    ID_TEST_output = torch.argmax(ID_TEST_PREDICTION, dim=1)
+    RECEIPT_TEST_output = torch.argmax(RECEIPT_TEST_PREDICTION, dim=1)
+    MEDICAL_FORM_output = torch.argmax(MEDICAL_FORM_PREDICTION, dim=1)
+
+    print(f"ID_TEST Prediction: {ID_TEST_PREDICTION}")
+    print(f"RECEIPT_TEST Prediction: {RECEIPT_TEST_PREDICTION}")
+    print(f"MEDICAL_FORM Prediction: {MEDICAL_FORM_PREDICTION}")
+    print(f"ID_TEST Output: {classes[ID_TEST_output.item()]}")
+    print(f"RECEIPT_TEST Output: {classes[RECEIPT_TEST_output.item()]}")
+    print(f"MEDICAL_FORM Output: {classes[MEDICAL_FORM_output.item()]}")
