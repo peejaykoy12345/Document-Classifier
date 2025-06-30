@@ -21,4 +21,4 @@ The model was trained on a custom dataset of scanned or photographed document im
 ## Currently Working On
 
 - Medical Form Support
-- Make model more accurate
+- Making model more accurate
