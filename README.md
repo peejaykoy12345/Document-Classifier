@@ -17,3 +17,8 @@ The model was trained on a custom dataset of scanned or photographed document im
 - ✅ Simple and modifiable model structure
 - ✅ CLI predictions for new images (e.g. `TestSet/ID_TESTING_1.png`)
 - ✅ Prints out class name predictions with confidence scores (logits)
+
+## Currently Working On
+
+- Medical Form Support
+- Make model more accurate
